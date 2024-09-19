@@ -1,0 +1,65 @@
+const express = require('express');
+const SerialPort = require('serialport');
+const SpotifyWebApi = require('spotify-web-api-node');
+
+const app = express();
+const port = 3000;
+
+// Set up Spotify API credentials
+const spotifyApi = new SpotifyWebApi({
+  clientId: 'your_spotify_client_id',
+  clientSecret: 'your_spotify_client_secret',
+});
+
+// Function to get an access token from Spotify
+async function getSpotifyToken() {
+  try {
+    const data = await spotifyApi.clientCredentialsGrant();
+    spotifyApi.setAccessToken(data.body['access_token']);
+    console.log('Spotify access token set.');
+  } catch (err) {
+    console.error('Error getting Spotify access token', err);
+  }
+}
+
+// Call the function to get Spotify token
+getSpotifyToken();
+
+// Set up serial communication with Arduino
+const arduinoPort = new SerialPort('/dev/ttyUSB0', { baudRate: 9600 });
+let currentEnergyValue = 0.5;  // Default energy value
+
+// Listen for data from the Arduino
+arduinoPort.on('data', (data) => {
+  const energyValue = parseFloat(data.toString().trim());
+  if (!isNaN(energyValue)) {
+    currentEnergyValue = energyValue;  // Update energy based on knob position
+    console.log('Updated energy value:', currentEnergyValue);
+  }
+});
+
+// Function to fetch songs based on the energy value
+async function fetchSongsByEnergy(energy) {
+  try {
+    const response = await spotifyApi.getRecommendations({
+      seed_genres: ['pop'],  // You can change genre as needed
+      limit: 5,  // Number of songs
+      target_energy: energy,  // Use energy value from the knob
+    });
+    const songs = response.body.tracks.map(track => track.name);
+    console.log('Recommended songs based on energy:', songs);
+  } catch (err) {
+    console.error('Error fetching songs from Spotify:', err);
+  }
+}
+
+// Endpoint to fetch songs based on current energy value
+app.get('/songs', (req, res) => {
+  fetchSongsByEnergy(currentEnergyValue)
+    .then(() => res.send('Songs fetched. Check the server logs for results.'));
+});
+
+// Start server
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
